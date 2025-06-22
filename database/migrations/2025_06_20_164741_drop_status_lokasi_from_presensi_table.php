@@ -12,15 +12,17 @@ return new class extends Migration
     public function up(): void
     {
         Schema::table('presensi', function (Blueprint $table) {
-            // Kita letakkan setelah lokasi_keluar, ganti nik ke user_id jika perlu
-            $table->enum('status_lokasi', ['in', 'out'])->default('in')->after('lokasi_keluar');
+            $table->dropColumn('status_lokasi');
         });
     }
 
+    /**
+     * Reverse the migrations.
+     */
     public function down(): void
     {
         Schema::table('presensi', function (Blueprint $table) {
-            $table->dropColumn('status_lokasi');
+            //
         });
     }
 };
