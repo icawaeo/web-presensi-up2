@@ -26,38 +26,50 @@ class PresensiController extends Controller
         return view('dashboard.presensi.index', compact('title', 'presensiKaryawan', 'lokasiKantor'));
     }
 
+    public function create()
+    {
+        $hariIni = Carbon::now();
+        $lokasiKantor = LokasiKantor::where('is_used', true)->first();
+
+        // Validasi jika admin belum mengatur lokasi kantor
+        if (!$lokasiKantor) {
+            return redirect()->route('karyawan.dashboard')->with('error', 'Lokasi kantor belum diatur. Silakan hubungi admin.');
+        }
+
+        $presensiKaryawan = DB::table('presensi')
+            ->where('user_id', auth()->guard('karyawan')->user()->user_id)
+            ->where('tanggal_presensi', $hariIni->toDateString())
+            ->first();
+
+        return view('dashboard.presensi.create', [
+            'title' => "Presensi",
+            'presensiKaryawan' => $presensiKaryawan,
+            'lokasiKantor' => $lokasiKantor,
+        ]);
+    } 
     public function store(Request $request)
     {
         $jenisPresensi = $request->jenis;
         $user_id = auth()->guard('karyawan')->user()->user_id;
         $tglPresensi = date('Y-m-d');
         $jam = date('H:i:s');
-
         $lokasi = $request->lokasi;
-        $folderPath = "public/unggah/presensi/";
-        $folderName = $user_id . "-" . $tglPresensi . "-" . $jenisPresensi;
 
+        // Logika pengecekan radius untuk menandai status
         $lokasiKantor = LokasiKantor::where('is_used', true)->first();
-        $langtitudeKantor = $lokasiKantor->latitude;
-        $longtitudeKantor = $lokasiKantor->longitude;
         $lokasiUser = explode(",", $lokasi);
         $langtitudeUser = $lokasiUser[0];
         $longtitudeUser = $lokasiUser[1];
 
-        $jarak = round($this->validation_radius_presensi($langtitudeKantor, $longtitudeKantor, $langtitudeUser, $longtitudeUser), 2);
-        if ($jarak > 33) {
-            return response()->json([
-                'status' => 500,
-                'success' => false,
-                'message' => "Anda berada di luar radius kantor. Jarak Anda " . $jarak . " meter dari kantor",
-                'jenis_error' => "radius",
-            ]);
-        }
+        $jarak = round($this->validation_radius_presensi($lokasiKantor->latitude, $lokasiKantor->longitude, $langtitudeUser, $longtitudeUser), 2);
+        
+        $statusRadius = ($jarak > $lokasiKantor->radius) ? 'out' : 'in';
 
+        $folderPath = "public/unggah/presensi/";
+        $folderName = $user_id . "-" . $tglPresensi . "-" . $jenisPresensi;
         $image = $request->image;
         $imageParts = explode(";base64", $image);
         $imageBase64 = base64_decode($imageParts[1]);
-
         $fileName = $folderName . ".png";
         $file = $folderPath . $fileName;
 
@@ -101,6 +113,7 @@ class PresensiController extends Controller
             'success' => true,
             'message' => "Berhasil presensi",
             'jenis_presensi' => $jenisPresensi,
+            'status_radius' => $statusRadius, // Kirim status radius ke frontend
         ]);
     }
 
@@ -235,12 +248,18 @@ class PresensiController extends Controller
     public function viewLokasi(Request $request)
     {
         if ($request->tipe == "lokasi_masuk") {
-            $data = DB::table('presensi')->where('user_id', $request->user_id)->first('lokasi_masuk');
-            return $data;
-        } elseif ($request->tipe == "lokasi_keluar") {
-            $data = DB::table('presensi')->where('user_id', $request->user_id)->first('lokasi_keluar');
-            return $data;
+            $lokasi = DB::table('presensi')
+                ->where('user_id', $request->user_id)
+                ->where('tanggal_presensi', 'LIKE', '%' . Carbon::now()->format('Y-m') . '%')
+                ->pluck('lokasi_masuk');
+        } else {
+            $lokasi = DB::table('presensi')
+                ->where('user_id', $request->user_id)
+                ->where('tanggal_presensi', 'LIKE', '%' . Carbon::now()->format('Y-m') . '%')
+                ->pluck('lokasi_keluar');
         }
+
+        return response()->json($lokasi);
     }
 
     public function laporan(Request $request)
